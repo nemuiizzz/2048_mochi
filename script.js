@@ -535,7 +535,7 @@ function handleTouchMove(e) {
     e.preventDefault();
 }
 
-function handleTouchEnd(e) {
+async function handleTouchEnd(e) {
     console.log('touchend', e);
     e.preventDefault();
     const touchEndX = e.changedTouches[0].screenX;
@@ -543,7 +543,7 @@ function handleTouchEnd(e) {
     const diffX = touchEndX - touchStartX;
     const diffY = touchEndY - touchStartY;
     console.log(`diffX: ${diffX}, diffY: ${diffY}`);
-    handleSwipe(diffX, diffY);
+    await handleSwipe(diffX, diffY);
 }
 
 async function handleSwipe(diffX, diffY) {
