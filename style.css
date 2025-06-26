@@ -1,0 +1,266 @@
+@import url('https://fonts.googleapis.com/css2?family=Hachi+Maru+Pop&display=swap');
+
+body {
+    font-family: 'Hachi Maru Pop', cursive;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: #f0f0f0;
+    color: #333;
+}
+
+h1 {
+    color: #ff69b4; /* ピンク色 */
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+}
+
+.container {
+    display: flex;
+    gap: 20px;
+    margin-top: 20px;
+    border-radius: 20px; /* 丸み */
+    background-color: #fff;
+    padding: 20px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.game-area,
+.mochi-area,
+.store-area {
+    border: none; /* 枠線をなくす */
+    padding: 20px;
+    background-color: #ffe0f0; /* 薄いピンク */
+    border-radius: 15px; /* 丸み */
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.game-area {
+    width: 400px;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-weight: bold;
+    color: #d81b60;
+}
+
+#game-board {
+    width: 400px;
+    height: 400px;
+    background-color: #ffcdd2; /* 薄い赤 */
+    border: none;
+    border-radius: 15px; /* 丸み */
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+    gap: 10px;
+    padding: 10px;
+    box-sizing: border-box;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.tile {
+    background-color: #ffecb3; /* 薄い黄色 */
+    border-radius: 50%; /* 円形 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 28px; /* フォントサイズを少し大きく */
+    font-weight: bold;
+    background-size: 80%; /* 画像を少し小さく */
+    background-position: center;
+    background-repeat: no-repeat;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.mochi-area {
+    width: 300px;
+}
+
+#mochi-room {
+    position: relative;
+    width: 100%;
+    height: 200px;
+    background-color: #f0f0f0;
+    border: none;
+    border-radius: 15px; /* 丸み */
+    margin-bottom: 10px;
+    background-image: url('images/mochi_room_bg.png');
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-position: center;
+    overflow: hidden; /* はみ出しを隠す */
+}
+
+#mochi-animation {
+    width: 100px;
+    height: 100px;
+    margin: 0 auto;
+    margin-top: 10px;
+    position: relative;
+    z-index: 10;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    transition: background-image 0.5s ease-in-out;
+    border-radius: 50%; /* もち自体も丸く */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+#item-sprites {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.item-sprite {
+    position: absolute;
+    width: 50px;
+    height: 50px;
+    background-size: contain;
+    background-repeat: no-repeat;
+}
+
+.store-area {
+    width: 300px;
+}
+
+#furniture-store {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.furniture-item {
+    width: 80px;
+    height: 120px;
+    border: 1px solid #ffab91; /* 枠線の色も可愛く */
+    padding: 5px;
+    text-align: center;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    border-radius: 10px; /* 丸み */
+    background-color: #fff3e0; /* 薄いオレンジ */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.furniture-item.purchased {
+    background-color: #e0e0e0;
+    cursor: default;
+    opacity: 0.7; /* 購入済みは少し透明に */
+}
+
+.furniture-item img {
+    width: 50px;
+    height: 50px;
+    margin: 0 auto 5px auto;
+    border-radius: 5px; /* 画像にも少し丸み */
+}
+
+.furniture-item p {
+    margin: 0;
+    font-size: 12px;
+    color: #424242;
+}
+
+button {
+    background-color: #ff80ab; /* ボタンの色も可愛く */
+    color: white;
+    border: none;
+    border-radius: 10px; /* 丸み */
+    padding: 10px 15px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+button:hover:not(:disabled) {
+    background-color: #ff4081;
+}
+
+button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.rewards-container h3 {
+    color: #d81b60;
+}
+
+#mochi-status p {
+    color: #d81b60;
+    font-weight: bold;
+}
+
+.nemuke-gauge-container {
+    color: #d81b60;
+}
+
+@media (max-width: 768px) {
+    .container {
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 10px;
+    }
+
+    .game-area,
+    .mochi-area,
+    .store-area {
+        width: 95%;
+        max-width: 400px;
+        margin-bottom: 10px;
+    }
+
+    #game-board {
+        width: 100%;
+        height: 300px;
+        gap: 5px;
+        padding: 5px;
+    }
+
+    .tile {
+        font-size: 20px;
+    }
+
+    #mochi-room {
+        height: 150px;
+    }
+
+    #mochi-animation {
+        width: 80px;
+        height: 80px;
+    }
+
+    .item-sprite {
+        width: 40px;
+        height: 40px;
+    }
+
+    .furniture-item {
+        width: 70px;
+        height: 100px;
+    }
+
+    .furniture-item img {
+        width: 40px;
+        height: 40px;
+    }
+
+    .furniture-item p {
+        font-size: 10px;
+    }
+
+    button {
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+}

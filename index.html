@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ねむいもちの2048時間睡眠</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>ねむいもちの2048時間睡眠</h1>
+
+    <div class="container">
+        <div class="game-area">
+            <div class="header">
+                <div class="score-container">
+                    癒しポイント: <span id="healing-points">0</span>
+                </div>
+                <div class="nemuke-gauge-container">
+                    ねむ気ゲージ: <span id="nemuke-gauge">0</span> / <span id="nemuke-gauge-max">5000</span>
+                </div>
+            </div>
+            <div id="game-board"></div>
+        </div>
+
+        <div class="mochi-area">
+            <h2>もちのお部屋</h2>
+            <div id="mochi-room">
+                <div id="mochi-animation"></div>
+                <div id="item-sprites"></div>
+            </div>
+            <div id="mochi-status">
+                <p>もちのきもち： <span id="mochi-state-text">おきてる</span></p>
+            </div>
+            <div class="rewards-container">
+                <h3>ほうしゅう</h3>
+                <p>放置報酬: <span id="afk-reward-timer">00:00</span></p>
+                <button id="get-nemunemu-reward" disabled>ねむねむ報酬</button>
+            </div>
+        </div>
+
+        <div class="store-area">
+            <h2>家具屋さん</h2>
+            <div id="furniture-store"></div>
+        </div>
+
+    <!-- 画像のプリロード用 -->
+    <div id="preload-images" style="display: none;"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>

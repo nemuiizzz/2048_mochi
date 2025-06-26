@@ -1,0 +1,10 @@
+{
+    "furnitureData": [
+        { "id": "cushion", "name": "クッション", "price": 50, "image": "images/cushion.png", "top": "120px", "left": "50px" },
+        { "id": "table", "name": "テーブル", "price": 200, "image": "images/table.png", "top": "100px", "left": "150px" },
+        { "id": "plant", "name": "観葉植物", "price": 150, "image": "images/plant.png", "top": "20px", "left": "220px" },
+        { "id": "futon", "name": "ふとん", "price": 100, "image": "images/futon.png", "top": "150px", "left": "100px" },
+        { "id": "lamp", "name": "ランプ", "price": 120, "image": "images/lamp.png", "top": "50px", "left": "20px" },
+        { "id": "bookshelf", "name": "本棚", "price": 300, "image": "images/bookshelf.png", "top": "0px", "left": "0px" }
+    ]
+}
