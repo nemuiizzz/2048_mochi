@@ -1,9 +1,9 @@
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOMContentLoaded event fired. Starting game initialization.');
 
     try {
         // ゲーム開始
-        initGame();
+        await initGame();
 
     } catch (e) {
         console.error("An error occurred during game initialization:", e);
@@ -11,6 +11,38 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     console.log('DOMContentLoaded event finished.');
 });
+
+// オーディオコンテキストのロック解除
+let audioContext = null;
+let audioUnlocked = false; // 音声がアンロックされたかどうかのフラグ
+let audioBuffers = {}; // 読み込んだオーディオデータを格納
+
+function unlockAudio() {
+    return new Promise(resolve => {
+        if (audioUnlocked) {
+            resolve();
+            return;
+        }
+
+        if (audioContext === null) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        if (audioContext.state === 'suspended') {
+            audioContext.resume().then(() => {
+                console.log('AudioContext resumed successfully');
+                audioUnlocked = true;
+                resolve();
+            }).catch(error => {
+                console.warn('Failed to resume AudioContext:', error);
+                resolve(); // Resolve even on error to not block the game
+            });
+        } else {
+            audioUnlocked = true;
+            resolve();
+        }
+    });
+}
 
 // --- ゲームのメインロジック（グローバルスコープに移動） ---
 
@@ -68,10 +100,10 @@ const sounds = {
 
 // --- 初期化 ---
 
-function initGame() {
+async function initGame() {
     console.log('initGame started.');
     loadGame();
-    preloadAssets();
+    await preloadAssets(); // await を追加
 
     board = Array(boardSize * boardSize).fill(0);
     nemukeGauge = 0;
@@ -86,7 +118,8 @@ function initGame() {
     populateFurnitureStore();
     renderPurchasedFurniture();
 
-    document.addEventListener('keydown', handleKeyDown);
+    activateControls();
+
     getNemunemuRewardBtn.disabled = true;
     getNemunemuRewardBtn.addEventListener('click', claimNemunemuReward);
 
@@ -105,15 +138,40 @@ function initGame() {
 // --- ヘルパー関数 ---
 
 function playSound(soundName) {
-    if (sounds[soundName]) {
-        const audio = new Audio(sounds[soundName]);
-        audio.play().catch(error => {
-            console.log(`Could not play sound '${soundName}' automatically. User interaction might be required.`);
+    console.log(`playSound called for: ${soundName}. Initial AudioContext state: ${audioContext ? audioContext.state : 'not initialized'}`);
+
+    if (audioContext === null) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        console.log(`AudioContext initialized in playSound. State: ${audioContext.state}`);
+    }
+
+    if (audioContext.state === 'suspended') {
+        audioContext.resume().then(() => {
+            console.log('AudioContext resumed successfully from playSound. Attempting to play sound.');
+            if (audioContext.state === 'running' && audioBuffers[soundName]) {
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffers[soundName];
+                source.connect(audioContext.destination);
+                source.start(0);
+                console.log(`Sound played successfully after resume: ${soundName}`);
+            } else {
+                console.warn(`Could not play sound '${soundName}' after resume attempt. Final AudioContext state: ${audioContext ? audioContext.state : 'not initialized'}, Buffer loaded: ${!!audioBuffers[soundName]}`);
+            }
+        }).catch(error => {
+            console.warn('Failed to resume AudioContext from playSound:', error);
         });
+    } else if (audioContext.state === 'running' && audioBuffers[soundName]) {
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffers[soundName];
+        source.connect(audioContext.destination);
+        source.start(0);
+        console.log(`Sound played successfully: ${soundName}`);
+    } else {
+        console.warn(`Could not play sound '${soundName}'. Final AudioContext state: ${audioContext ? audioContext.state : 'not initialized'}, Buffer loaded: ${!!audioBuffers[soundName]}`);
     }
 }
 
-function preloadAssets() {
+async function preloadAssets() { // async を追加
     console.log('preloadAssets started.');
     const allImagePaths = [
         ...Object.values(itemImages),
@@ -127,10 +185,27 @@ function preloadAssets() {
         // preloadImagesDiv.appendChild(img); // デバッグ用。通常は不要
     });
 
-    for (const key in sounds) {
-        const audio = new Audio();
-        audio.src = sounds[key];
+    // サウンドのプリロード
+    if (audioContext === null) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
     }
+
+    const soundPromises = Object.keys(sounds).map(async soundName => { // async を追加
+        const url = sounds[soundName];
+        try {
+            const response = await fetch(url);
+            const arrayBuffer = await response.arrayBuffer();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            audioBuffers[soundName] = audioBuffer;
+            console.log(`Sound preloaded: ${soundName}`);
+        } catch (error) {
+            console.error(`Error preloading sound ${soundName}:`, error);
+        }
+    });
+
+    await Promise.all(soundPromises); // await を追加
+
+    console.log('All sounds preloaded.');
     console.log('preloadAssets finished.');
 }
 
@@ -239,6 +314,7 @@ function populateFurnitureStore() {
 }
 
 function purchaseFurniture(item) {
+    console.log(`Attempting to purchase furniture. AudioContext state before purchase: ${audioContext ? audioContext.state : 'not initialized'}`);
     if (healingPoints >= item.price && !purchasedFurniture.includes(item.id)) {
         healingPoints -= item.price;
         purchasedFurniture.push(item.id);
@@ -246,8 +322,148 @@ function purchaseFurniture(item) {
         populateFurnitureStore();
         renderPurchasedFurniture();
         saveGame();
+        console.log(`Furniture purchased. AudioContext state after purchase: ${audioContext ? audioContext.state : 'not initialized'}`);
     } else {
         alert('癒しポイントが足りません！');
+        console.log(`Furniture purchase failed. AudioContext state: ${audioContext ? audioContext.state : 'not initialized'}`);
+    }
+}
+
+function renderPurchasedFurniture() {
+    console.log('renderPurchasedFurniture started.');
+    const itemSpritesDiv = document.getElementById('item-sprites');
+    itemSpritesDiv.innerHTML = '';
+    purchasedFurniture.forEach(itemId => {
+        const furniture = furnitureData.find(f => f.id === itemId);
+        if (furniture) {
+            const sprite = document.createElement('div');
+            sprite.classList.add('item-sprite');
+            sprite.style.backgroundImage = `url(${furniture.image})`;
+            sprite.style.top = furniture.top;
+            sprite.style.left = furniture.left;
+            itemSpritesDiv.appendChild(sprite);
+        }
+    });
+    console.log('renderPurchasedFurniture finished.');
+}
+
+function spawnItem() {
+    const emptyTiles = [];
+    board.forEach((value, index) => {
+        if (value === 0) emptyTiles.push(index);
+    });
+    if (emptyTiles.length > 0) {
+        const randomIndex = emptyTiles[Math.floor(Math.random() * emptyTiles.length)];
+        board[randomIndex] = Math.random() < 0.9 ? 2 : 4;
+    }
+}
+
+function arraysEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+    }
+    return true;
+}
+
+function canMakeMove() {
+    // 空きマスがあるか
+    for (let i = 0; i < board.length; i++) {
+        if (board[i] === 0) return true;
+    }
+
+    // 合成できるマスがあるか (水平方向)
+    for (let row = 0; row < boardSize; row++) {
+        for (let col = 0; col < boardSize - 1; col++) {
+            const index = row * boardSize + col;
+            if (board[index] !== 0 && board[index] === board[index + 1]) return true;
+        }
+    }
+
+    // 合成できるマスがあるか (垂直方向)
+    for (let col = 0; col < boardSize; col++) {
+        for (let row = 0; row < boardSize - 1; row++) {
+            const index = row * boardSize + col;
+            if (board[index] !== 0 && board[index] === board[index + boardSize]) return true;
+        }
+    }
+    return false;
+}
+
+// --- 描画関連 ---
+
+function drawBoard() {
+    console.log('drawBoard started.');
+    gameBoard.innerHTML = '';
+    board.forEach(value => {
+        const tile = document.createElement('div');
+        tile.classList.add('tile');
+        if (value !== 0) {
+            const imagePath = itemImages[value];
+            if (imagePath) {
+                tile.style.backgroundImage = `url(${imagePath})`;
+            } else {
+                tile.textContent = value; // 画像がない場合は数字を表示
+            }
+        }
+        gameBoard.appendChild(tile);
+    });
+    console.log('drawBoard finished.');
+}
+
+function updateStats() {
+    healingPointsSpan.textContent = healingPoints;
+    nemukeGaugeSpan.textContent = `${Math.floor(nemukeGauge)} / 1000`;
+    mochiStateText.textContent = mochiState;
+}
+
+function updateMochiAnimation() {
+    console.log('updateMochiAnimation started.');
+    let state = 'awake';
+    if (nemukeGauge >= 5000) state = 'asleep'; // 5000で眠る
+    else if (nemukeGauge >= 2500) state = 'sleepy'; // 2500で眠そう
+    
+    const imagePath = mochiImages[state];
+    if (imagePath) {
+        mochiAnimation.style.backgroundImage = `url(${imagePath})`;
+    }
+    console.log('updateMochiAnimation finished.');
+}
+
+// --- 家具関連 ---
+
+function populateFurnitureStore() {
+    console.log('populateFurnitureStore started.');
+    furnitureStore.innerHTML = '';
+    furnitureData.forEach(item => {
+        const itemDiv = document.createElement('div');
+        itemDiv.classList.add('furniture-item');
+        if (purchasedFurniture.includes(item.id)) {
+            itemDiv.classList.add('purchased');
+        }
+
+        itemDiv.innerHTML = `<img src="${item.image}" alt="${item.name}"><p>${item.name}</p><p>価格: ${item.price}</p>`;
+        if (!purchasedFurniture.includes(item.id)) {
+            itemDiv.addEventListener('click', () => purchaseFurniture(item));
+        }
+        furnitureStore.appendChild(itemDiv);
+    });
+    console.log('populateFurnitureStore finished.');
+}
+
+function purchaseFurniture(item) {
+    console.log(`Attempting to purchase furniture. AudioContext state before purchase: ${audioContext ? audioContext.state : 'not initialized'}`);
+    if (healingPoints >= item.price && !purchasedFurniture.includes(item.id)) {
+        healingPoints -= item.price;
+        purchasedFurniture.push(item.id);
+        updateStats();
+        populateFurnitureStore();
+        renderPurchasedFurniture();
+        saveGame();
+        console.log(`Furniture purchased. AudioContext state after purchase: ${audioContext ? audioContext.state : 'not initialized'}`);
+    } else {
+        alert('癒しポイントが足りません！');
+        console.log(`Furniture purchase failed. AudioContext state: ${audioContext ? audioContext.state : 'not initialized'}`);
     }
 }
 
@@ -271,14 +487,17 @@ function renderPurchasedFurniture() {
 
 // --- ゲームロジック ---
 
-function handleKeyDown(e) {
-    let moved = false;
-    switch (e.key) {
-        case 'ArrowUp': moved = move('up'); break;
-        case 'ArrowDown': moved = move('down'); break;
-        case 'ArrowLeft': moved = move('left'); break;
-        case 'ArrowRight': moved = move('right'); break;
+// タッチ操作用の変数
+let touchStartX = 0;
+let touchStartY = 0;
+
+async function processMove(direction) {
+    // 最初の操作で音声をアンロック
+    if (!audioUnlocked) {
+        await unlockAudio();
     }
+
+    const moved = move(direction);
     if (moved) {
         nemukeGauge += 1;
         spawnItem();
@@ -288,6 +507,80 @@ function handleKeyDown(e) {
         checkGameOver();
     }
 }
+
+async function handleKeyDown(e) {
+    switch (e.key) {
+        case 'ArrowUp': await processMove('up'); break;
+        case 'ArrowDown': await processMove('down'); break;
+        case 'ArrowLeft': await processMove('left'); break;
+        case 'ArrowRight': await processMove('right'); break;
+    }
+}
+
+async function handleTouchStart(e) {
+    console.log('touchstart', e);
+    // 最初の操作で音声をアンロック
+    if (!audioUnlocked) {
+        await unlockAudio();
+    }
+    // passive: false を指定しているため、スクロールをキャンセルできる
+    e.preventDefault();
+    touchStartX = e.changedTouches[0].screenX;
+    touchStartY = e.changedTouches[0].screenY;
+}
+
+function handleTouchMove(e) {
+    console.log('touchmove', e);
+    // スワイプ中の画面スクロールを防止
+    e.preventDefault();
+}
+
+function handleTouchEnd(e) {
+    console.log('touchend', e);
+    e.preventDefault();
+    const touchEndX = e.changedTouches[0].screenX;
+    const touchEndY = e.changedTouches[0].screenY;
+    const diffX = touchEndX - touchStartX;
+    const diffY = touchEndY - touchStartY;
+    console.log(`diffX: ${diffX}, diffY: ${diffY}`);
+    handleSwipe(diffX, diffY);
+}
+
+async function handleSwipe(diffX, diffY) {
+    const threshold = 30; // スワイプと判定する最小距離（ピクセル）
+    console.log(`handleSwipe called with diffX: ${diffX}, diffY: ${diffY}, threshold: ${threshold}`);
+
+    // 横方向のスワイプか、縦方向のスワイプかを判定
+    if (Math.abs(diffX) > Math.abs(diffY)) {
+        // 横方向
+        if (Math.abs(diffX) > threshold) {
+            await processMove(diffX > 0 ? 'right' : 'left');
+            console.log(`Swipe detected: ${diffX > 0 ? 'right' : 'left'}`);
+        }
+    } else {
+        // 縦方向
+        if (Math.abs(diffY) > threshold) {
+            await processMove(diffY > 0 ? 'down' : 'up');
+            console.log(`Swipe detected: ${diffY > 0 ? 'down' : 'up'}`);
+        }
+    }
+}
+
+// --- 操作関連のヘルパー関数 ---
+function activateControls() {
+    document.addEventListener('keydown', handleKeyDown);
+    gameBoard.addEventListener('touchstart', handleTouchStart, { passive: false });
+    gameBoard.addEventListener('touchmove', handleTouchMove, { passive: false });
+    gameBoard.addEventListener('touchend', handleTouchEnd, { passive: false });
+}
+
+function deactivateControls() {
+    document.removeEventListener('keydown', handleKeyDown);
+    gameBoard.removeEventListener('touchstart', handleTouchStart);
+    gameBoard.removeEventListener('touchmove', handleTouchMove);
+    gameBoard.removeEventListener('touchend', handleTouchEnd);
+}
+
 
 function move(direction) {
     let moved = false;
@@ -341,7 +634,7 @@ function checkGameOver() {
         mochiState = 'ねむっている';
         updateStats();
         updateMochiAnimation();
-        document.removeEventListener('keydown', handleKeyDown);
+        deactivateControls();
         getNemunemuRewardBtn.disabled = false;
         playSound('sleep');
         setTimeout(() => alert('もちが眠ってしまいました！「ねむねむ報酬」を受け取って、新しいゲームを始めましょう。'), 500);
@@ -353,25 +646,12 @@ function checkGameOver() {
     if (!canMakeMove()) {
         mochiState = '動けない'; // 新しい状態
         updateStats();
-        document.removeEventListener('keydown', handleKeyDown);
+        deactivateControls();
         getNemunemuRewardBtn.disabled = false; // 報酬ボタンを有効にするか検討
         alert('もう動かせるマスがありません！ゲームオーバー');
         console.log('Game Over: No more moves.');
     }
     console.log('checkGameOver finished.');
-}
-
-function claimNemunemuReward() {
-    const nemunemuReward = 100; // ねむねむ報酬の基本ポイント
-    const afkPoints = Math.floor(afkTime / 10); // 放置時間に応じたポイント
-    const totalReward = nemunemuReward + afkPoints;
-
-    healingPoints += totalReward;
-    playSound('reward');
-    alert(`「ねむねむ報酬」として ${nemunemuReward}P と放置報酬 ${afkPoints}P、合計 ${totalReward} 癒しポイントをゲットしました！`);
-    saveGame();
-    afkTime = 0; // 放置時間をリセット
-    resetGame();
 }
 
 function claimNemunemuReward() {
@@ -398,7 +678,7 @@ function resetGame() {
     drawBoard();
     updateStats();
     updateMochiAnimation();
-    document.addEventListener('keydown', handleKeyDown);
+    activateControls();
     getNemunemuRewardBtn.disabled = true;
     // ここでイベントリスナーを再登録し、ボタンを有効にする
     getNemunemuRewardBtn.addEventListener('click', claimNemunemuReward);
@@ -425,5 +705,4 @@ function loadGame() {
 }
 
 // --- ゲーム開始 ---
-initGame();
 
