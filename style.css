@@ -216,6 +216,7 @@ button {
     cursor: pointer;
     transition: background-color 0.3s ease;
     box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    margin-top: 10px; /* ボタン間のスペース */
 }
 
 button:hover:not(:disabled) {
@@ -226,6 +227,14 @@ button:disabled {
     background-color: #cccccc;
     cursor: not-allowed;
     box-shadow: none;
+}
+
+#undo-button {
+    background-color: #80cbc4; /* 少し落ち着いた色 */
+}
+
+#undo-button:hover:not(:disabled) {
+    background-color: #4db6ac;
 }
 
 .rewards-container h3 {
