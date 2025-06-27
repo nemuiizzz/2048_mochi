@@ -56,6 +56,7 @@ const afkRewardTimerSpan = document.getElementById('afk-reward-timer');
 const getNemunemuRewardBtn = document.getElementById('get-nemunemu-reward');
 const furnitureStore = document.getElementById('furniture-store');
 const preloadImagesDiv = document.getElementById('preload-images');
+const undoButton = document.getElementById('undo-button');
 
 // ゲームの状態変数
 let healingPoints = 0;
@@ -64,6 +65,8 @@ let mochiState = '起きている';
 let afkTime = 0;
 let board = [];
 let purchasedFurniture = [];
+let boardHistory = []; // 盤面の履歴を保存する配列
+const MAX_HISTORY_SIZE = 10; // 履歴の最大サイズ
 
 const boardSize = 4;
 
@@ -123,6 +126,8 @@ async function initGame() {
     getNemunemuRewardBtn.disabled = true;
     getNemunemuRewardBtn.addEventListener('click', claimNemunemuReward);
 
+    undoButton.addEventListener('click', undoMove);
+
     setInterval(() => {
         if (mochiState !== 'ねむっている') {
             afkTime++;
@@ -179,11 +184,23 @@ async function preloadAssets() { // async を追加
         ...furnitureData.map(item => item.image)
     ];
 
-    allImagePaths.forEach(path => {
-        const img = new Image();
-        img.src = path;
-        // preloadImagesDiv.appendChild(img); // デバッグ用。通常は不要
+    const imagePromises = allImagePaths.map(path => {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.src = path;
+            img.onload = () => {
+                console.log(`Image loaded: ${path}`);
+                resolve();
+            };
+            img.onerror = (e) => {
+                console.error(`Error loading image: ${path}`, e);
+                reject(e);
+            };
+        });
     });
+
+    await Promise.all(imagePromises);
+    console.log('All images preloaded.');
 
     // サウンドのプリロード
     if (audioContext === null) {
@@ -282,13 +299,21 @@ function updateStats() {
 function updateMochiAnimation() {
     console.log('updateMochiAnimation started.');
     let state = 'awake';
-    if (nemukeGauge >= 5000) state = 'asleep'; // 5000で眠る
-    else if (nemukeGauge >= 2500) state = 'sleepy'; // 2500で眠そう
+    if (nemukeGauge >= 5000) {
+        state = 'asleep'; // 5000で眠る
+        mochiState = 'ねむっている';
+    } else if (nemukeGauge >= 2500) {
+        state = 'sleepy'; // 2500で眠そう
+        mochiState = 'ねむそう';
+    } else {
+        mochiState = 'おきてる';
+    }
     
     const imagePath = mochiImages[state];
     if (imagePath) {
         mochiAnimation.style.backgroundImage = `url(${imagePath})`;
     }
+    mochiStateText.textContent = mochiState; // きもちのテキストも更新
     console.log('updateMochiAnimation finished.');
 }
 
@@ -313,7 +338,10 @@ function populateFurnitureStore() {
     console.log('populateFurnitureStore finished.');
 }
 
-function purchaseFurniture(item) {
+async function purchaseFurniture(item) {
+    if (!audioUnlocked) {
+        await unlockAudio();
+    }
     console.log(`Attempting to purchase furniture. AudioContext state before purchase: ${audioContext ? audioContext.state : 'not initialized'}`);
     if (healingPoints >= item.price && !purchasedFurniture.includes(item.id)) {
         healingPoints -= item.price;
@@ -332,158 +360,27 @@ function purchaseFurniture(item) {
 function renderPurchasedFurniture() {
     console.log('renderPurchasedFurniture started.');
     const itemSpritesDiv = document.getElementById('item-sprites');
-    itemSpritesDiv.innerHTML = '';
+    itemSpritesDiv.innerHTML = ''; // Clear existing furniture
+
     purchasedFurniture.forEach(itemId => {
         const furniture = furnitureData.find(f => f.id === itemId);
         if (furniture) {
-            const sprite = document.createElement('div');
-            sprite.classList.add('item-sprite');
-            sprite.style.backgroundImage = `url(${furniture.image})`;
-            sprite.style.top = furniture.top;
-            sprite.style.left = furniture.left;
-            itemSpritesDiv.appendChild(sprite);
+            const img = document.createElement('img');
+            img.src = furniture.image;
+            img.alt = furniture.name;
+            img.classList.add('furniture-sprite');
+            img.style.position = 'absolute';
+            img.style.top = furniture.top;
+            img.style.left = furniture.left;
+            itemSpritesDiv.appendChild(img);
         }
     });
     console.log('renderPurchasedFurniture finished.');
 }
 
-function spawnItem() {
-    const emptyTiles = [];
-    board.forEach((value, index) => {
-        if (value === 0) emptyTiles.push(index);
-    });
-    if (emptyTiles.length > 0) {
-        const randomIndex = emptyTiles[Math.floor(Math.random() * emptyTiles.length)];
-        board[randomIndex] = Math.random() < 0.9 ? 2 : 4;
-    }
-}
 
-function arraysEqual(a, b) {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-        if (a[i] !== b[i]) return false;
-    }
-    return true;
-}
 
-function canMakeMove() {
-    // 空きマスがあるか
-    for (let i = 0; i < board.length; i++) {
-        if (board[i] === 0) return true;
-    }
 
-    // 合成できるマスがあるか (水平方向)
-    for (let row = 0; row < boardSize; row++) {
-        for (let col = 0; col < boardSize - 1; col++) {
-            const index = row * boardSize + col;
-            if (board[index] !== 0 && board[index] === board[index + 1]) return true;
-        }
-    }
-
-    // 合成できるマスがあるか (垂直方向)
-    for (let col = 0; col < boardSize; col++) {
-        for (let row = 0; row < boardSize - 1; row++) {
-            const index = row * boardSize + col;
-            if (board[index] !== 0 && board[index] === board[index + boardSize]) return true;
-        }
-    }
-    return false;
-}
-
-// --- 描画関連 ---
-
-function drawBoard() {
-    console.log('drawBoard started.');
-    gameBoard.innerHTML = '';
-    board.forEach(value => {
-        const tile = document.createElement('div');
-        tile.classList.add('tile');
-        if (value !== 0) {
-            const imagePath = itemImages[value];
-            if (imagePath) {
-                tile.style.backgroundImage = `url(${imagePath})`;
-            } else {
-                tile.textContent = value; // 画像がない場合は数字を表示
-            }
-        }
-        gameBoard.appendChild(tile);
-    });
-    console.log('drawBoard finished.');
-}
-
-function updateStats() {
-    healingPointsSpan.textContent = healingPoints;
-    nemukeGaugeSpan.textContent = `${Math.floor(nemukeGauge)} / 1000`;
-    mochiStateText.textContent = mochiState;
-}
-
-function updateMochiAnimation() {
-    console.log('updateMochiAnimation started.');
-    let state = 'awake';
-    if (nemukeGauge >= 5000) state = 'asleep'; // 5000で眠る
-    else if (nemukeGauge >= 2500) state = 'sleepy'; // 2500で眠そう
-    
-    const imagePath = mochiImages[state];
-    if (imagePath) {
-        mochiAnimation.style.backgroundImage = `url(${imagePath})`;
-    }
-    console.log('updateMochiAnimation finished.');
-}
-
-// --- 家具関連 ---
-
-function populateFurnitureStore() {
-    console.log('populateFurnitureStore started.');
-    furnitureStore.innerHTML = '';
-    furnitureData.forEach(item => {
-        const itemDiv = document.createElement('div');
-        itemDiv.classList.add('furniture-item');
-        if (purchasedFurniture.includes(item.id)) {
-            itemDiv.classList.add('purchased');
-        }
-
-        itemDiv.innerHTML = `<img src="${item.image}" alt="${item.name}"><p>${item.name}</p><p>価格: ${item.price}</p>`;
-        if (!purchasedFurniture.includes(item.id)) {
-            itemDiv.addEventListener('click', () => purchaseFurniture(item));
-        }
-        furnitureStore.appendChild(itemDiv);
-    });
-    console.log('populateFurnitureStore finished.');
-}
-
-function purchaseFurniture(item) {
-    console.log(`Attempting to purchase furniture. AudioContext state before purchase: ${audioContext ? audioContext.state : 'not initialized'}`);
-    if (healingPoints >= item.price && !purchasedFurniture.includes(item.id)) {
-        healingPoints -= item.price;
-        purchasedFurniture.push(item.id);
-        updateStats();
-        populateFurnitureStore();
-        renderPurchasedFurniture();
-        saveGame();
-        console.log(`Furniture purchased. AudioContext state after purchase: ${audioContext ? audioContext.state : 'not initialized'}`);
-    } else {
-        alert('癒しポイントが足りません！');
-        console.log(`Furniture purchase failed. AudioContext state: ${audioContext ? audioContext.state : 'not initialized'}`);
-    }
-}
-
-function renderPurchasedFurniture() {
-    console.log('renderPurchasedFurniture started.');
-    const itemSpritesDiv = document.getElementById('item-sprites');
-    itemSpritesDiv.innerHTML = '';
-    purchasedFurniture.forEach(itemId => {
-        const furniture = furnitureData.find(f => f.id === itemId);
-        if (furniture) {
-            const sprite = document.createElement('div');
-            sprite.classList.add('item-sprite');
-            sprite.style.backgroundImage = `url(${furniture.image})`;
-            sprite.style.top = furniture.top;
-            sprite.style.left = furniture.left;
-            itemSpritesDiv.appendChild(sprite);
-        }
-    });
-    console.log('renderPurchasedFurniture finished.');
-}
 
 // --- ゲームロジック ---
 
@@ -492,10 +389,7 @@ let touchStartX = 0;
 let touchStartY = 0;
 
 async function processMove(direction) {
-    // 最初の操作で音声をアンロック
-    if (!audioUnlocked) {
-        await unlockAudio();
-    }
+    saveBoardState(); // 移動前に現在のボードの状態を保存
 
     const moved = move(direction);
     if (moved) {
@@ -508,7 +402,32 @@ async function processMove(direction) {
     }
 }
 
+function saveBoardState() {
+    // 履歴の最大サイズを超えないように古いものを削除
+    if (boardHistory.length >= MAX_HISTORY_SIZE) {
+        boardHistory.shift();
+    }
+    boardHistory.push({ board: [...board], nemukeGauge: nemukeGauge, mochiState: mochiState });
+}
+
+function undoMove() {
+    if (boardHistory.length > 0) {
+        const prevState = boardHistory.pop();
+        board = [...prevState.board];
+        nemukeGauge = prevState.nemukeGauge;
+        mochiState = prevState.mochiState;
+        drawBoard();
+        updateStats();
+        updateMochiAnimation();
+    } else {
+        alert('これ以上戻れません！');
+    }
+}
+
 async function handleKeyDown(e) {
+    if (!audioUnlocked) {
+        await unlockAudio();
+    }
     switch (e.key) {
         case 'ArrowUp': await processMove('up'); break;
         case 'ArrowDown': await processMove('down'); break;
@@ -518,11 +437,11 @@ async function handleKeyDown(e) {
 }
 
 async function handleTouchStart(e) {
-    console.log('touchstart', e);
-    // 最初の操作で音声をアンロック
     if (!audioUnlocked) {
         await unlockAudio();
     }
+    console.log('touchstart', e);
+
     // passive: false を指定しているため、スクロールをキャンセルできる
     e.preventDefault();
     touchStartX = e.changedTouches[0].screenX;
