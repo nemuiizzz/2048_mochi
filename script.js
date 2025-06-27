@@ -57,6 +57,7 @@ const afkRewardTimerSpan = document.getElementById('afk-reward-timer');
 const getNemunemuRewardBtn = document.getElementById('get-nemunemu-reward');
 const furnitureStore = document.getElementById('furniture-store');
 const preloadImagesDiv = document.getElementById('preload-images');
+const undoButton = document.getElementById('undo-button');
 
 // ゲームの状態変数
 let healingPoints = 0;
@@ -64,7 +65,10 @@ let nemukeGauge = 0;
 let mochiState = '起きている';
 let afkTime = 0;
 let board = [];
-let purchasedFurniture = [];
+let purchasedFurniture = {};
+let previousBoard = [];
+let previousHealingPoints = 0;
+let previousNemukeGauge = 0;
 
 const boardSize = 4;
 
@@ -123,6 +127,9 @@ async function initGame() {
 
     getNemunemuRewardBtn.disabled = true;
     getNemunemuRewardBtn.addEventListener('click', claimNemunemuReward);
+
+    undoButton.addEventListener('click', undoMove); // 一手戻るボタンのイベントリスナーを追加
+    undoButton.disabled = true; // 初期状態では無効にする
 
     setInterval(() => {
         if (mochiState !== 'ねむっている') {
@@ -313,12 +320,12 @@ function populateFurnitureStore() {
     furnitureData.forEach(item => {
         const itemDiv = document.createElement('div');
         itemDiv.classList.add('furniture-item');
-        if (purchasedFurniture.includes(item.id)) {
+        if (purchasedFurniture[item.id]) { // キーで存在をチェック
             itemDiv.classList.add('purchased');
         }
 
         itemDiv.innerHTML = `<img src="${item.image}" alt="${item.name}"><p>${item.name}</p><p>価格: ${item.price}</p>`;
-        if (!purchasedFurniture.includes(item.id)) {
+        if (!purchasedFurniture[item.id]) { // キーで存在をチェック
             itemDiv.addEventListener('click', () => purchaseFurniture(item));
         }
         furnitureStore.appendChild(itemDiv);
@@ -331,9 +338,12 @@ async function purchaseFurniture(item) {
         await unlockAudio();
     }
     console.log(`Attempting to purchase furniture. AudioContext state before purchase: ${audioContext ? audioContext.state : 'not initialized'}`);
-    if (healingPoints >= item.price && !purchasedFurniture.includes(item.id)) {
+    if (healingPoints >= item.price && !purchasedFurniture[item.id]) {
         healingPoints -= item.price;
-        purchasedFurniture.push(item.id);
+        purchasedFurniture[item.id] = { // オブジェクトとして保存
+            top: item.top,
+            left: item.left
+        };
         updateStats();
         populateFurnitureStore();
         renderPurchasedFurniture();
@@ -350,20 +360,107 @@ function renderPurchasedFurniture() {
     const itemSpritesDiv = document.getElementById('item-sprites');
     itemSpritesDiv.innerHTML = ''; // Clear existing furniture
 
-    purchasedFurniture.forEach(itemId => {
+    for (const itemId in purchasedFurniture) {
         const furniture = furnitureData.find(f => f.id === itemId);
         if (furniture) {
             const img = document.createElement('img');
             img.src = furniture.image;
             img.alt = furniture.name;
             img.classList.add('furniture-sprite');
-            img.style.position = 'absolute';
-            img.style.top = furniture.top;
-            img.style.left = furniture.left;
+            img.dataset.id = itemId; // データ属性としてIDを保持
+
+            // 保存された位置情報を適用
+            const position = purchasedFurniture[itemId];
+            img.style.top = position.top;
+            img.style.left = position.left;
+
             itemSpritesDiv.appendChild(img);
+
+            // --- ドラッグ＆ドロップ機能 --- 
+            let isDragging = false;
+            let offsetX, offsetY;
+
+            const startDrag = (e) => {
+                isDragging = true;
+                img.classList.add('dragging');
+
+                const event = e.type.startsWith('touch') ? e.touches[0] : e;
+                const rect = img.getBoundingClientRect();
+                const containerRect = itemSpritesDiv.getBoundingClientRect();
+
+                offsetX = event.clientX - rect.left;
+                offsetY = event.clientY - rect.top;
+
+                document.addEventListener('mousemove', drag);
+                document.addEventListener('touchmove', drag, { passive: false });
+                document.addEventListener('mouseup', endDrag);
+                document.addEventListener('touchend', endDrag);
+            };
+
+            const drag = (e) => {
+                if (!isDragging) return;
+                e.preventDefault();
+
+                const event = e.type.startsWith('touch') ? e.touches[0] : e;
+                const containerRect = itemSpritesDiv.getBoundingClientRect();
+
+                let newLeft = event.clientX - containerRect.left - offsetX;
+                let newTop = event.clientY - containerRect.top - offsetY;
+
+                // 部屋の範囲内に制限
+                newLeft = Math.max(0, Math.min(newLeft, containerRect.width - img.offsetWidth));
+                newTop = Math.max(0, Math.min(newTop, containerRect.height - img.offsetHeight));
+
+                img.style.left = `${newLeft}px`;
+                img.style.top = `${newTop}px`;
+            };
+
+            const endDrag = () => {
+                if (!isDragging) return;
+                isDragging = false;
+                img.classList.remove('dragging');
+
+                // 新しい位置を保存
+                purchasedFurniture[itemId] = {
+                    top: img.style.top,
+                    left: img.style.left
+                };
+                saveGame();
+
+                document.removeEventListener('mousemove', drag);
+                document.removeEventListener('touchmove', drag);
+                document.removeEventListener('mouseup', endDrag);
+                document.removeEventListener('touchend', endDrag);
+            };
+
+            img.addEventListener('mousedown', startDrag);
+            img.addEventListener('touchstart', startDrag, { passive: false });
         }
-    });
+    }
     console.log('renderPurchasedFurniture finished.');
+}
+
+// --- 一手戻る機能 ---
+function saveBoardState() {
+    previousBoard = [...board];
+    previousHealingPoints = healingPoints;
+    previousNemukeGauge = nemukeGauge;
+    undoButton.disabled = false; // 戻るボタンを有効化
+}
+
+function undoMove() {
+    if (previousBoard.length > 0) {
+        board = [...previousBoard];
+        healingPoints = previousHealingPoints;
+        nemukeGauge = previousNemukeGauge;
+
+        drawBoard();
+        updateStats();
+        updateMochiAnimation();
+
+        undoButton.disabled = true; // 一度使ったら無効化
+        previousBoard = []; // 戻る履歴をクリア
+    }
 }
 
 
@@ -565,6 +662,7 @@ function resetGame() {
     updateMochiAnimation();
     activateControls();
     getNemunemuRewardBtn.disabled = true;
+    undoButton.disabled = true; // 戻るボタンを無効化
     // ここでイベントリスナーを再登録し、ボタンを有効にする
     getNemunemuRewardBtn.addEventListener('click', claimNemunemuReward);
     getNemunemuRewardBtn.disabled = false; // ボタンを有効にする
@@ -585,7 +683,7 @@ function loadGame() {
     if (savedState) {
         const gameState = JSON.parse(savedState);
         healingPoints = gameState.healingPoints || 0;
-        purchasedFurniture = gameState.purchasedFurniture || [];
+        purchasedFurniture = gameState.purchasedFurniture || {}; // オブジェクトとして初期化
     }
 }
 

@@ -33,6 +33,13 @@ h1 {
     text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
 }
 
+.subtitle {
+    font-size: 0.9em; /* 小さめのフォントサイズ */
+    color: #666; /* 少し薄い色 */
+    margin-top: -10px; /* タイトルとの間隔を調整 */
+    margin-bottom: 20px;
+}
+
 .container {
     display: flex;
     flex-wrap: wrap;
@@ -141,12 +148,26 @@ h1 {
     height: 100%;
 }
 
-.item-sprite {
+.furniture-sprite {
     position: absolute;
-    width: 50px;
-    height: 50px;
+    width: 40px; /* サイズを調整 */
+    height: 40px; /* サイズを調整 */
     background-size: contain;
     background-repeat: no-repeat;
+    cursor: grab;
+    z-index: 11; /* もちより手前に表示 */
+    transition: transform 0.2s ease-in-out;
+}
+
+.furniture-sprite:hover {
+    transform: scale(1.1);
+}
+
+.furniture-sprite.dragging {
+    cursor: grabbing;
+    opacity: 0.8;
+    transform: scale(1.1);
+    z-index: 12; /* ドラッグ中は最前面 */
 }
 
 .store-area {
