@@ -1,3 +1,4 @@
+
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOMContentLoaded event fired. Starting game initialization.');
 
@@ -56,7 +57,6 @@ const afkRewardTimerSpan = document.getElementById('afk-reward-timer');
 const getNemunemuRewardBtn = document.getElementById('get-nemunemu-reward');
 const furnitureStore = document.getElementById('furniture-store');
 const preloadImagesDiv = document.getElementById('preload-images');
-const undoButton = document.getElementById('undo-button');
 
 // ゲームの状態変数
 let healingPoints = 0;
@@ -65,8 +65,6 @@ let mochiState = '起きている';
 let afkTime = 0;
 let board = [];
 let purchasedFurniture = [];
-let boardHistory = []; // 盤面の履歴を保存する配列
-const MAX_HISTORY_SIZE = 5; // 履歴の最大サイズ
 
 const boardSize = 4;
 
@@ -125,8 +123,6 @@ async function initGame() {
 
     getNemunemuRewardBtn.disabled = true;
     getNemunemuRewardBtn.addEventListener('click', claimNemunemuReward);
-
-    undoButton.addEventListener('click', undoMove);
 
     setInterval(() => {
         if (mochiState !== 'ねむっている') {
@@ -299,21 +295,13 @@ function updateStats() {
 function updateMochiAnimation() {
     console.log('updateMochiAnimation started.');
     let state = 'awake';
-    if (nemukeGauge >= 5000) {
-        state = 'asleep'; // 5000で眠る
-        mochiState = 'ねむっている';
-    } else if (nemukeGauge >= 2500) {
-        state = 'sleepy'; // 2500で眠そう
-        mochiState = 'ねむそう';
-    } else {
-        mochiState = 'おきてる';
-    }
+    if (nemukeGauge >= 5000) state = 'asleep'; // 5000で眠る
+    else if (nemukeGauge >= 2500) state = 'sleepy'; // 2500で眠そう
     
     const imagePath = mochiImages[state];
     if (imagePath) {
         mochiAnimation.style.backgroundImage = `url(${imagePath})`;
     }
-    mochiStateText.textContent = mochiState; // きもちのテキストも更新
     console.log('updateMochiAnimation finished.');
 }
 
@@ -345,8 +333,7 @@ async function purchaseFurniture(item) {
     console.log(`Attempting to purchase furniture. AudioContext state before purchase: ${audioContext ? audioContext.state : 'not initialized'}`);
     if (healingPoints >= item.price && !purchasedFurniture.includes(item.id)) {
         healingPoints -= item.price;
-        // 新しい家具のデータ構造: { id: string, top: string, left: string }
-        purchasedFurniture.push({ id: item.id, top: item.top, left: item.left });
+        purchasedFurniture.push(item.id);
         updateStats();
         populateFurnitureStore();
         renderPurchasedFurniture();
@@ -358,105 +345,25 @@ async function purchaseFurniture(item) {
     }
 }
 
-let isDragging = false;
-let currentDraggable = null;
-let offsetX, offsetY;
-let mochiRoomRect; // もちの部屋のサイズと位置を保存
-
 function renderPurchasedFurniture() {
     console.log('renderPurchasedFurniture started.');
     const itemSpritesDiv = document.getElementById('item-sprites');
     itemSpritesDiv.innerHTML = ''; // Clear existing furniture
 
-    mochiRoomRect = document.getElementById('mochi-room').getBoundingClientRect();
-
-    purchasedFurniture.forEach(item => {
-        const furniture = furnitureData.find(f => f.id === item.id);
+    purchasedFurniture.forEach(itemId => {
+        const furniture = furnitureData.find(f => f.id === itemId);
         if (furniture) {
             const img = document.createElement('img');
             img.src = furniture.image;
             img.alt = furniture.name;
             img.classList.add('furniture-sprite');
             img.style.position = 'absolute';
-            img.style.top = item.top; // 保存された位置を使用
-            img.style.left = item.left; // 保存された位置を使用
-            img.dataset.itemId = item.id; // ドラッグ中の家具を特定するためにIDを保存
-
-            // ドラッグイベントリスナーを追加
-            img.addEventListener('mousedown', startDrag);
-            img.addEventListener('touchstart', startDrag, { passive: false });
-
+            img.style.top = furniture.top;
+            img.style.left = furniture.left;
             itemSpritesDiv.appendChild(img);
         }
     });
     console.log('renderPurchasedFurniture finished.');
-}
-
-function startDrag(e) {
-    if (!audioUnlocked) {
-        unlockAudio();
-    }
-    isDragging = true;
-    currentDraggable = e.target;
-    currentDraggable.style.zIndex = 100; // ドラッグ中の要素を最前面に
-
-    const rect = currentDraggable.getBoundingClientRect();
-    if (e.type === 'mousedown') {
-        offsetX = e.clientX - rect.left;
-        offsetY = e.clientY - rect.top;
-        document.addEventListener('mousemove', drag);
-        document.addEventListener('mouseup', endDrag);
-    } else if (e.type === 'touchstart') {
-        e.preventDefault(); // スクロール防止
-        offsetX = e.touches[0].clientX - rect.left;
-        offsetY = e.touches[0].clientY - rect.top;
-        document.addEventListener('touchmove', drag, { passive: false });
-        document.addEventListener('touchend', endDrag);
-    }
-}
-
-function drag(e) {
-    if (!isDragging) return;
-
-    let clientX, clientY;
-    if (e.type === 'mousemove') {
-        clientX = e.clientX;
-        clientY = e.clientY;
-    } else if (e.type === 'touchmove') {
-        e.preventDefault(); // スクロール防止
-        clientX = e.touches[0].clientX;
-        clientY = e.touches[0].clientY;
-    }
-
-    let newLeft = clientX - mochiRoomRect.left - offsetX;
-    let newTop = clientY - mochiRoomRect.top - offsetY;
-
-    // 部屋の境界内に制限
-    newLeft = Math.max(0, Math.min(newLeft, mochiRoomRect.width - currentDraggable.offsetWidth));
-    newTop = Math.max(0, Math.min(newTop, mochiRoomRect.height - currentDraggable.offsetHeight));
-
-    currentDraggable.style.left = `${newLeft}px`;
-    currentDraggable.style.top = `${newTop}px`;
-}
-
-function endDrag(e) {
-    isDragging = false;
-    currentDraggable.style.zIndex = ''; // z-indexを元に戻す
-
-    document.removeEventListener('mousemove', drag);
-    document.removeEventListener('mouseup', endDrag);
-    document.removeEventListener('touchmove', drag);
-    document.removeEventListener('touchend', endDrag);
-
-    // 家具の新しい位置を保存
-    const itemId = currentDraggable.dataset.itemId;
-    const itemIndex = purchasedFurniture.findIndex(item => item.id === itemId);
-    if (itemIndex !== -1) {
-        purchasedFurniture[itemIndex].top = currentDraggable.style.top;
-        purchasedFurniture[itemIndex].left = currentDraggable.style.left;
-        saveGame();
-    }
-    currentDraggable = null;
 }
 
 
@@ -480,28 +387,6 @@ async function processMove(direction) {
         updateStats();
         updateMochiAnimation();
         checkGameOver();
-    }
-}
-
-function saveBoardState() {
-    // 履歴の最大サイズを超えないように古いものを削除
-    if (boardHistory.length >= MAX_HISTORY_SIZE) {
-        boardHistory.shift();
-    }
-    boardHistory.push({ board: [...board], nemukeGauge: nemukeGauge, mochiState: mochiState });
-}
-
-function undoMove() {
-    if (boardHistory.length > 0) {
-        const prevState = boardHistory.pop();
-        board = [...prevState.board];
-        nemukeGauge = prevState.nemukeGauge;
-        mochiState = prevState.mochiState;
-        drawBoard();
-        updateStats();
-        updateMochiAnimation();
-    } else {
-        alert('これ以上戻れません！');
     }
 }
 
@@ -690,7 +575,7 @@ function resetGame() {
 function saveGame() {
     const gameState = {
         healingPoints: healingPoints,
-        purchasedFurniture: purchasedFurniture // top, left を含むオブジェクトの配列を保存
+        purchasedFurniture: purchasedFurniture
     };
     localStorage.setItem('nemuiMochiGameState', JSON.stringify(gameState));
 }
@@ -700,15 +585,7 @@ function loadGame() {
     if (savedState) {
         const gameState = JSON.parse(savedState);
         healingPoints = gameState.healingPoints || 0;
-        // 互換性のため、古い形式のデータ（文字列の配列）を新しい形式に変換
-        if (gameState.purchasedFurniture && gameState.purchasedFurniture.length > 0 && typeof gameState.purchasedFurniture[0] === 'string') {
-            purchasedFurniture = gameState.purchasedFurniture.map(itemId => {
-                const furniture = furnitureData.find(f => f.id === itemId);
-                return furniture ? { id: itemId, top: furniture.top, left: furniture.left } : null;
-            }).filter(item => item !== null);
-        } else {
-            purchasedFurniture = gameState.purchasedFurniture || [];
-        }
+        purchasedFurniture = gameState.purchasedFurniture || [];
     }
 }
 

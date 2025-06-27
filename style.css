@@ -10,6 +10,18 @@ body {
     box-sizing: border-box;
 }
 
+.controls {
+    text-align: center;
+    margin-bottom: 10px;
+  }
+  #undo-btn {
+    background-color: #ff80ab;
+    color: white;
+    border-radius: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+
 *,
 *::before,
 *::after {
@@ -137,31 +149,6 @@ h1 {
     background-repeat: no-repeat;
 }
 
-.furniture-sprite {
-    width: 30%; /* 部屋のサイズに合わせて調整 */
-    height: auto;
-    max-width: 80px; /* 最大サイズを設定 */
-    max-height: 80px;
-    object-fit: contain; /* 画像が枠内に収まるように */
-}
-
-#undo-button {
-    margin-top: 10px;
-    background-color: #80cbc4; /* 少し落ち着いた色 */
-    color: white;
-    border: none;
-    border-radius: 10px;
-    padding: 10px 15px;
-    font-size: 16px;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-}
-
-#undo-button:hover:not(:disabled) {
-    background-color: #4db6ac;
-}
-
 .store-area {
     width: 300px;
 }
@@ -216,7 +203,6 @@ button {
     cursor: pointer;
     transition: background-color 0.3s ease;
     box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    margin-top: 10px; /* ボタン間のスペース */
 }
 
 button:hover:not(:disabled) {
@@ -227,14 +213,6 @@ button:disabled {
     background-color: #cccccc;
     cursor: not-allowed;
     box-shadow: none;
-}
-
-#undo-button {
-    background-color: #80cbc4; /* 少し落ち着いた色 */
-}
-
-#undo-button:hover:not(:disabled) {
-    background-color: #4db6ac;
 }
 
 .rewards-container h3 {
