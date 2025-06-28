@@ -1,11 +1,7 @@
-
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOMContentLoaded event fired. Starting game initialization.');
-
     try {
-        // ゲーム開始
         await initGame();
-
     } catch (e) {
         console.error("An error occurred during game initialization:", e);
         alert("ゲームの読み込み中にエラーが発生しました。開発者ツール（F12）のコンソールをご確認ください。");
@@ -13,41 +9,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOMContentLoaded event finished.');
 });
 
-// オーディオコンテキストのロック解除
+// Audio variables
 let audioContext = null;
-let audioUnlocked = false; // 音声がアンロックされたかどうかのフラグ
-let audioBuffers = {}; // 読み込んだオーディオデータを格納
+let audioBuffers = {}; // Stores fetched audio data (as ArrayBuffer or decoded AudioBuffer)
+let isAudioInitialized = false; // Flag to check if AudioContext is running
 
-function unlockAudio() {
-    return new Promise(resolve => {
-        if (audioUnlocked) {
-            resolve();
-            return;
-        }
-
-        if (audioContext === null) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        }
-
-        if (audioContext.state === 'suspended') {
-            audioContext.resume().then(() => {
-                console.log('AudioContext resumed successfully');
-                audioUnlocked = true;
-                resolve();
-            }).catch(error => {
-                console.warn('Failed to resume AudioContext:', error);
-                resolve(); // Resolve even on error to not block the game
-            });
-        } else {
-            audioUnlocked = true;
-            resolve();
-        }
-    });
-}
-
-// --- ゲームのメインロジック（グローバルスコープに移動） ---
-
-// DOM要素の取得
+// DOM Elements
 const gameBoard = document.getElementById('game-board');
 const healingPointsSpan = document.getElementById('healing-points');
 const nemukeGaugeSpan = document.getElementById('nemuke-gauge');
@@ -56,13 +23,12 @@ const mochiAnimation = document.getElementById('mochi-animation');
 const afkRewardTimerSpan = document.getElementById('afk-reward-timer');
 const getNemunemuRewardBtn = document.getElementById('get-nemunemu-reward');
 const furnitureStore = document.getElementById('furniture-store');
-const preloadImagesDiv = document.getElementById('preload-images');
 const undoButton = document.getElementById('undo-button');
 
-// ゲームの状態変数
+// Game state variables
 let healingPoints = 0;
 let nemukeGauge = 0;
-let mochiState = '起きている';
+let mochiState = 'おきている';
 let afkTime = 0;
 let board = [];
 let purchasedFurniture = {};
@@ -72,7 +38,7 @@ let previousNemukeGauge = 0;
 
 const boardSize = 4;
 
-// --- データ定義 ---
+// Data definitions
 const itemImages = {
     2: 'images/item1.png', 4: 'images/item2.png', 8: 'images/item3.png',
     16: 'images/item4.png', 32: 'images/item5.png', 64: 'images/item6.png', 128: 'images/item7.png',
@@ -103,23 +69,24 @@ const sounds = {
     reward: 'sounds/reward.wav',
 };
 
-// --- 初期化 ---
+// --- Initialization ---
 
 async function initGame() {
     console.log('initGame started.');
     loadGame();
-    await preloadAssets(); // await を追加
+    setupAudioUnlock(); // Set up the one-time audio unlock listeners
+    await preloadAssets();
 
     board = Array(boardSize * boardSize).fill(0);
     nemukeGauge = 0;
-    mochiState = '起きている';
+    mochiState = 'おきている';
 
     spawnItem();
     spawnItem();
 
     drawBoard();
     updateStats();
-    updateMochiAnimation();
+    updateMochiStatus();
     populateFurnitureStore();
     renderPurchasedFurniture();
 
@@ -128,58 +95,81 @@ async function initGame() {
     getNemunemuRewardBtn.disabled = true;
     getNemunemuRewardBtn.addEventListener('click', claimNemunemuReward);
 
-    undoButton.addEventListener('click', undoMove); // 一手戻るボタンのイベントリスナーを追加
-    undoButton.disabled = true; // 初期状態では無効にする
+    undoButton.addEventListener('click', undoMove);
+    undoButton.disabled = true;
 
     setInterval(() => {
         if (mochiState !== 'ねむっている') {
             afkTime++;
             const minutes = Math.floor(afkTime / 60).toString().padStart(2, '0');
             const seconds = (afkTime % 60).toString().padStart(2, '0');
-            const afkPoints = Math.floor(afkTime / 10); // 10秒ごとに1ポイント
+            const afkPoints = Math.floor(afkTime / 10);
             afkRewardTimerSpan.textContent = `${minutes}:${seconds} (+${afkPoints}P)`;
+            if (afkPoints >= 10) {
+                getNemunemuRewardBtn.disabled = false;
+            } else {
+                getNemunemuRewardBtn.disabled = true;
+            }
         }
     }, 1000);
     console.log('initGame finished.');
 }
 
-// --- ヘルパー関数 ---
+// --- Helper Functions ---
+
+function setupAudioUnlock() {
+    const unlockAudio = async () => {
+        if (isAudioInitialized) return;
+        try {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+            if (audioContext.state === 'running') {
+                isAudioInitialized = true;
+                console.log('AudioContext is active. Decoding all sounds...');
+                // Decode all sounds now that the context is unlocked
+                await Promise.all(Object.keys(sounds).map(async (soundName) => {
+                    if (audioBuffers[soundName] instanceof ArrayBuffer) {
+                        try {
+                            const decodedData = await audioContext.decodeAudioData(audioBuffers[soundName].slice(0));
+                            audioBuffers[soundName] = decodedData;
+                        } catch (e) {
+                            console.error(`Error decoding sound ${soundName}:`, e);
+                        }
+                    }
+                }));
+                console.log('All sounds decoded and ready.');
+            }
+        } catch (e) {
+            console.error('Audio Unlock Failed:', e);
+        }
+    };
+
+    // These listeners will be removed automatically after being called once.
+    document.addEventListener('touchstart', unlockAudio, { once: true });
+    document.addEventListener('click', unlockAudio, { once: true });
+    document.addEventListener('keydown', unlockAudio, { once: true });
+}
 
 function playSound(soundName) {
-    console.log(`playSound called for: ${soundName}. Initial AudioContext state: ${audioContext ? audioContext.state : 'not initialized'}`);
-
-    if (audioContext === null) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        console.log(`AudioContext initialized in playSound. State: ${audioContext.state}`);
+    if (!isAudioInitialized || !audioBuffers[soundName] || !(audioBuffers[soundName] instanceof AudioBuffer)) {
+        console.warn(`Cannot play sound '${soundName}'. Audio not ready or buffer not decoded.`);
+        return;
     }
-
-    if (audioContext.state === 'suspended') {
-        audioContext.resume().then(() => {
-            console.log('AudioContext resumed successfully from playSound. Attempting to play sound.');
-            if (audioContext.state === 'running' && audioBuffers[soundName]) {
-                const source = audioContext.createBufferSource();
-                source.buffer = audioBuffers[soundName];
-                source.connect(audioContext.destination);
-                source.start(0);
-                console.log(`Sound played successfully after resume: ${soundName}`);
-            } else {
-                console.warn(`Could not play sound '${soundName}' after resume attempt. Final AudioContext state: ${audioContext ? audioContext.state : 'not initialized'}, Buffer loaded: ${!!audioBuffers[soundName]}`);
-            }
-        }).catch(error => {
-            console.warn('Failed to resume AudioContext from playSound:', error);
-        });
-    } else if (audioContext.state === 'running' && audioBuffers[soundName]) {
+    try {
         const source = audioContext.createBufferSource();
         source.buffer = audioBuffers[soundName];
         source.connect(audioContext.destination);
         source.start(0);
-        console.log(`Sound played successfully: ${soundName}`);
-    } else {
-        console.warn(`Could not play sound '${soundName}'. Final AudioContext state: ${audioContext ? audioContext.state : 'not initialized'}, Buffer loaded: ${!!audioBuffers[soundName]}`);
+    } catch (e) {
+        console.error(`Error playing sound ${soundName}:`, e);
     }
 }
 
-async function preloadAssets() { // async を追加
+async function preloadAssets() {
     console.log('preloadAssets started.');
     const allImagePaths = [
         ...Object.values(itemImages),
@@ -191,42 +181,25 @@ async function preloadAssets() { // async を追加
         return new Promise((resolve, reject) => {
             const img = new Image();
             img.src = path;
-            img.onload = () => {
-                console.log(`Image loaded: ${path}`);
-                resolve();
-            };
-            img.onerror = (e) => {
-                console.error(`Error loading image: ${path}`, e);
-                reject(e);
-            };
+            img.onload = resolve;
+            img.onerror = reject;
         });
     });
 
-    await Promise.all(imagePromises);
-    console.log('All images preloaded.');
-
-    // サウンドのプリロード
-    if (audioContext === null) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    }
-
-    const soundPromises = Object.keys(sounds).map(async soundName => { // async を追加
+    // Fetch sounds and store them as ArrayBuffers. Decoding will happen after user interaction.
+    const soundPromises = Object.keys(sounds).map(async soundName => {
         const url = sounds[soundName];
         try {
             const response = await fetch(url);
-            const arrayBuffer = await response.arrayBuffer();
-            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-            audioBuffers[soundName] = audioBuffer;
-            console.log(`Sound preloaded: ${soundName}`);
+            audioBuffers[soundName] = await response.arrayBuffer();
+            console.log(`Sound fetched: ${soundName}`);
         } catch (error) {
             console.error(`Error preloading sound ${soundName}:`, error);
         }
     });
 
-    await Promise.all(soundPromises); // await を追加
-
-    console.log('All sounds preloaded.');
-    console.log('preloadAssets finished.');
+    await Promise.all([...imagePromises, ...soundPromises]);
+    console.log('All assets preloaded.');
 }
 
 function spawnItem() {
@@ -241,28 +214,19 @@ function spawnItem() {
 }
 
 function arraysEqual(a, b) {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-        if (a[i] !== b[i]) return false;
-    }
-    return true;
+    return a.length === b.length && a.every((val, index) => val === b[index]);
 }
 
 function canMakeMove() {
-    // 空きマスがあるか
     for (let i = 0; i < board.length; i++) {
         if (board[i] === 0) return true;
     }
-
-    // 合成できるマスがあるか (水平方向)
     for (let row = 0; row < boardSize; row++) {
         for (let col = 0; col < boardSize - 1; col++) {
             const index = row * boardSize + col;
             if (board[index] !== 0 && board[index] === board[index + 1]) return true;
         }
     }
-
-    // 合成できるマスがあるか (垂直方向)
     for (let col = 0; col < boardSize; col++) {
         for (let row = 0; row < boardSize - 1; row++) {
             const index = row * boardSize + col;
@@ -272,94 +236,87 @@ function canMakeMove() {
     return false;
 }
 
-// --- 描画関連 ---
+// --- Drawing Functions ---
 
 function drawBoard() {
-    console.log('drawBoard started.');
-    gameBoard.innerHTML = '';
-    board.forEach(value => {
-        const tile = document.createElement('div');
-        tile.classList.add('tile');
-        if (value !== 0) {
-            const imagePath = itemImages[value];
-            if (imagePath) {
-                tile.style.backgroundImage = `url(${imagePath})`;
-            } else {
-                tile.textContent = value; // 画像がない場合は数字を表示
-            }
+    board.forEach((value, index) => {
+        let tile = gameBoard.children[index];
+        if (!tile) {
+            tile = document.createElement('div');
+            tile.classList.add('tile');
+            gameBoard.appendChild(tile);
         }
-        gameBoard.appendChild(tile);
+        const imagePath = itemImages[value];
+        tile.style.backgroundImage = value !== 0 && imagePath ? `url(${imagePath})` : '';
+        tile.textContent = value !== 0 && !imagePath ? value : '';
     });
-    console.log('drawBoard finished.');
 }
 
 function updateStats() {
     healingPointsSpan.textContent = healingPoints;
-    nemukeGaugeSpan.textContent = `${Math.floor(nemukeGauge)} / 1000`;
+    nemukeGaugeSpan.textContent = `${Math.floor(nemukeGauge)} / 5000`;
     mochiStateText.textContent = mochiState;
 }
 
-function updateMochiAnimation() {
-    console.log('updateMochiAnimation started.');
-    let state = 'awake';
-    if (nemukeGauge >= 5000) state = 'asleep'; // 5000で眠る
-    else if (nemukeGauge >= 2500) state = 'sleepy'; // 2500で眠そう
-    
-    const imagePath = mochiImages[state];
-    if (imagePath) {
-        mochiAnimation.style.backgroundImage = `url(${imagePath})`;
+function updateMochiStatus() {
+    const oldMochiState = mochiState;
+
+    if (nemukeGauge >= 5000) {
+        mochiState = 'ねむっている';
+    } else if (nemukeGauge >= 2501) {
+        mochiState = 'ねむい';
+    } else {
+        mochiState = 'おきている';
     }
-    console.log('updateMochiAnimation finished.');
+
+    let stateImage = 'awake';
+    if (mochiState === 'ねむっている') {
+        stateImage = 'asleep';
+    } else if (mochiState === 'ねむい') {
+        stateImage = 'sleepy';
+    }
+    mochiAnimation.style.backgroundImage = `url(${mochiImages[stateImage]})`;
+
+    // もし、もちがちょうど眠りについたなら、サウンドを再生
+    if (mochiState === 'ねむっている' && oldMochiState !== 'ねむっている') {
+        playSound('sleep');
+    }
 }
 
-// --- 家具関連 ---
+// --- Furniture Functions ---
 
 function populateFurnitureStore() {
-    console.log('populateFurnitureStore started.');
     furnitureStore.innerHTML = '';
     furnitureData.forEach(item => {
         const itemDiv = document.createElement('div');
         itemDiv.classList.add('furniture-item');
-        if (purchasedFurniture[item.id]) { // キーで存在をチェック
+        if (purchasedFurniture[item.id]) {
             itemDiv.classList.add('purchased');
         }
-
         itemDiv.innerHTML = `<img src="${item.image}" alt="${item.name}"><p>${item.name}</p><p>価格: ${item.price}</p>`;
-        if (!purchasedFurniture[item.id]) { // キーで存在をチェック
+        if (!purchasedFurniture[item.id]) {
             itemDiv.addEventListener('click', () => purchaseFurniture(item));
         }
         furnitureStore.appendChild(itemDiv);
     });
-    console.log('populateFurnitureStore finished.');
 }
 
-async function purchaseFurniture(item) {
-    if (!audioUnlocked) {
-        await unlockAudio();
-    }
-    console.log(`Attempting to purchase furniture. AudioContext state before purchase: ${audioContext ? audioContext.state : 'not initialized'}`);
+function purchaseFurniture(item) {
     if (healingPoints >= item.price && !purchasedFurniture[item.id]) {
         healingPoints -= item.price;
-        purchasedFurniture[item.id] = { // オブジェクトとして保存
-            top: item.top,
-            left: item.left
-        };
+        purchasedFurniture[item.id] = { top: item.top, left: item.left };
         updateStats();
         populateFurnitureStore();
         renderPurchasedFurniture();
         saveGame();
-        console.log(`Furniture purchased. AudioContext state after purchase: ${audioContext ? audioContext.state : 'not initialized'}`);
     } else {
         alert('癒しポイントが足りません！');
-        console.log(`Furniture purchase failed. AudioContext state: ${audioContext ? audioContext.state : 'not initialized'}`);
     }
 }
 
 function renderPurchasedFurniture() {
-    console.log('renderPurchasedFurniture started.');
     const itemSpritesDiv = document.getElementById('item-sprites');
-    itemSpritesDiv.innerHTML = ''; // Clear existing furniture
-
+    itemSpritesDiv.innerHTML = '';
     for (const itemId in purchasedFurniture) {
         const furniture = furnitureData.find(f => f.id === itemId);
         if (furniture) {
@@ -367,85 +324,61 @@ function renderPurchasedFurniture() {
             img.src = furniture.image;
             img.alt = furniture.name;
             img.classList.add('furniture-sprite');
-            img.dataset.id = itemId; // データ属性としてIDを保持
-
-            // 保存された位置情報を適用
+            img.dataset.id = itemId;
             const position = purchasedFurniture[itemId];
             img.style.top = position.top;
             img.style.left = position.left;
-
             itemSpritesDiv.appendChild(img);
 
-            // --- ドラッグ＆ドロップ機能 --- 
             let isDragging = false;
             let offsetX, offsetY;
-
             const startDrag = (e) => {
                 isDragging = true;
                 img.classList.add('dragging');
-
                 const event = e.type.startsWith('touch') ? e.touches[0] : e;
                 const rect = img.getBoundingClientRect();
-                const containerRect = itemSpritesDiv.getBoundingClientRect();
-
                 offsetX = event.clientX - rect.left;
                 offsetY = event.clientY - rect.top;
-
                 document.addEventListener('mousemove', drag);
                 document.addEventListener('touchmove', drag, { passive: false });
                 document.addEventListener('mouseup', endDrag);
                 document.addEventListener('touchend', endDrag);
             };
-
             const drag = (e) => {
                 if (!isDragging) return;
                 e.preventDefault();
-
                 const event = e.type.startsWith('touch') ? e.touches[0] : e;
                 const containerRect = itemSpritesDiv.getBoundingClientRect();
-
                 let newLeft = event.clientX - containerRect.left - offsetX;
                 let newTop = event.clientY - containerRect.top - offsetY;
-
-                // 部屋の範囲内に制限
                 newLeft = Math.max(0, Math.min(newLeft, containerRect.width - img.offsetWidth));
                 newTop = Math.max(0, Math.min(newTop, containerRect.height - img.offsetHeight));
-
                 img.style.left = `${newLeft}px`;
                 img.style.top = `${newTop}px`;
             };
-
             const endDrag = () => {
                 if (!isDragging) return;
                 isDragging = false;
                 img.classList.remove('dragging');
-
-                // 新しい位置を保存
-                purchasedFurniture[itemId] = {
-                    top: img.style.top,
-                    left: img.style.left
-                };
+                purchasedFurniture[itemId] = { top: img.style.top, left: img.style.left };
                 saveGame();
-
                 document.removeEventListener('mousemove', drag);
                 document.removeEventListener('touchmove', drag);
                 document.removeEventListener('mouseup', endDrag);
                 document.removeEventListener('touchend', endDrag);
             };
-
             img.addEventListener('mousedown', startDrag);
             img.addEventListener('touchstart', startDrag, { passive: false });
         }
     }
-    console.log('renderPurchasedFurniture finished.');
 }
 
-// --- 一手戻る機能 ---
+// --- Undo Function ---
 function saveBoardState() {
     previousBoard = [...board];
     previousHealingPoints = healingPoints;
     previousNemukeGauge = nemukeGauge;
-    undoButton.disabled = false; // 戻るボタンを有効化
+    undoButton.disabled = false;
 }
 
 function undoMove() {
@@ -453,102 +386,80 @@ function undoMove() {
         board = [...previousBoard];
         healingPoints = previousHealingPoints;
         nemukeGauge = previousNemukeGauge;
-
         drawBoard();
         updateStats();
-        updateMochiAnimation();
-
-        undoButton.disabled = true; // 一度使ったら無効化
-        previousBoard = []; // 戻る履歴をクリア
+        updateMochiStatus();
+        undoButton.disabled = true;
+        previousBoard = [];
     }
 }
 
+// --- Game Logic ---
 
-
-
-
-// --- ゲームロジック ---
-
-// タッチ操作用の変数
 let touchStartX = 0;
 let touchStartY = 0;
 
-async function processMove(direction) {
-    saveBoardState(); // 移動前に現在のボードの状態を保存
-
+function processMove(direction) {
+    saveBoardState();
     const moved = move(direction);
     if (moved) {
         nemukeGauge += 1;
         spawnItem();
         drawBoard();
         updateStats();
-        updateMochiAnimation();
+        updateMochiStatus();
         checkGameOver();
+        playSound('merge');
+    } else {
+        undoButton.disabled = true;
     }
 }
 
-async function handleKeyDown(e) {
-    if (!audioUnlocked) {
-        await unlockAudio();
-    }
+function handleKeyDown(e) {
     switch (e.key) {
-        case 'ArrowUp': await processMove('up'); break;
-        case 'ArrowDown': await processMove('down'); break;
-        case 'ArrowLeft': await processMove('left'); break;
-        case 'ArrowRight': await processMove('right'); break;
+        case 'ArrowUp': processMove('up'); break;
+        case 'ArrowDown': processMove('down'); break;
+        case 'ArrowLeft': processMove('left'); break;
+        case 'ArrowRight': processMove('right'); break;
     }
 }
 
-async function handleTouchStart(e) {
-    if (!audioUnlocked) {
-        await unlockAudio();
-    }
-    console.log('touchstart', e);
-
-    // passive: false を指定しているため、スクロールをキャンセルできる
+function handleTouchStart(e) {
+    if (e.target.classList.contains('furniture-sprite')) return;
     e.preventDefault();
     touchStartX = e.changedTouches[0].screenX;
     touchStartY = e.changedTouches[0].screenY;
 }
 
 function handleTouchMove(e) {
-    console.log('touchmove', e);
-    // スワイプ中の画面スクロールを防止
     e.preventDefault();
 }
 
-async function handleTouchEnd(e) {
-    console.log('touchend', e);
-    e.preventDefault();
+function handleTouchEnd(e) {
+    if (touchStartX === 0 && touchStartY === 0) return;
     const touchEndX = e.changedTouches[0].screenX;
     const touchEndY = e.changedTouches[0].screenY;
     const diffX = touchEndX - touchStartX;
     const diffY = touchEndY - touchStartY;
-    console.log(`diffX: ${diffX}, diffY: ${diffY}`);
-    await handleSwipe(diffX, diffY);
+    touchStartX = 0;
+    touchStartY = 0;
+    handleSwipe(diffX, diffY);
 }
 
-async function handleSwipe(diffX, diffY) {
-    const threshold = 30; // スワイプと判定する最小距離（ピクセル）
-    console.log(`handleSwipe called with diffX: ${diffX}, diffY: ${diffY}, threshold: ${threshold}`);
-
-    // 横方向のスワイプか、縦方向のスワイプかを判定
+function handleSwipe(diffX, diffY) {
+    const threshold = 30;
     if (Math.abs(diffX) > Math.abs(diffY)) {
-        // 横方向
         if (Math.abs(diffX) > threshold) {
-            await processMove(diffX > 0 ? 'right' : 'left');
-            console.log(`Swipe detected: ${diffX > 0 ? 'right' : 'left'}`);
+            processMove(diffX > 0 ? 'right' : 'left');
         }
     } else {
-        // 縦方向
         if (Math.abs(diffY) > threshold) {
-            await processMove(diffY > 0 ? 'down' : 'up');
-            console.log(`Swipe detected: ${diffY > 0 ? 'down' : 'up'}`);
+            processMove(diffY > 0 ? 'down' : 'up');
         }
     }
 }
 
-// --- 操作関連のヘルパー関数 ---
+// --- Control Functions ---
 function activateControls() {
     document.addEventListener('keydown', handleKeyDown);
     gameBoard.addEventListener('touchstart', handleTouchStart, { passive: false });
@@ -563,31 +474,25 @@ function deactivateControls() {
     gameBoard.removeEventListener('touchend', handleTouchEnd);
 }
 
-
 function move(direction) {
     let moved = false;
     const isVertical = direction === 'up' || direction === 'down';
     const isReversed = direction === 'right' || direction === 'down';
-
-    // 盤面をコピーして、移動後の状態をシミュレート
     const originalBoard = [...board];
 
     for (let i = 0; i < boardSize; i++) {
-        const line = [];
+        let line = [];
         for (let j = 0; j < boardSize; j++) {
             line.push(isVertical ? board[j * boardSize + i] : board[i * boardSize + j]);
         }
-
         if (isReversed) line.reverse();
         const newLine = transformLine(line);
         if (isReversed) newLine.reverse();
-
         for (let j = 0; j < boardSize; j++) {
             const currentIndex = isVertical ? j * boardSize + i : i * boardSize + j;
-            board[currentIndex] = newLine[j]; // 盤面を更新
+            board[currentIndex] = newLine[j];
         }
     }
-    // 移動があったかチェック
     moved = !arraysEqual(originalBoard, board);
     return moved;
 }
@@ -599,7 +504,6 @@ function transformLine(line) {
             newLine[i] *= 2;
             healingPoints += newLine[i];
             nemukeGauge += 5;
-            playSound('merge');
             newLine.splice(i + 1, 1);
         }
     }
@@ -610,65 +514,64 @@ function transformLine(line) {
 }
 
 function checkGameOver() {
-    console.log('checkGameOver started.');
-    if (nemukeGauge >= 5000) {
-        nemukeGauge = 1000;
-        mochiState = 'ねむっている';
+    if (!canMakeMove()) {
+        mochiState = '動けない';
         updateStats();
-        updateMochiAnimation();
         deactivateControls();
         getNemunemuRewardBtn.disabled = false;
-        playSound('sleep');
-        setTimeout(() => alert('もちが眠ってしまいました！「ねむねむ報酬」を受け取って、新しいゲームを始めましょう。'), 500);
-        console.log('Game Over: Mochi is asleep.');
-        return; // ゲームオーバーなのでここで終了
-    }
-
-    // 動かせるマスがないかチェック
-    if (!canMakeMove()) {
-        mochiState = '動けない'; // 新しい状態
-        updateStats();
-        deactivateControls();
-        getNemunemuRewardBtn.disabled = false; // 報酬ボタンを有効にするか検討
         alert('もう動かせるマスがありません！ゲームオーバー');
-        console.log('Game Over: No more moves.');
     }
-    console.log('checkGameOver finished.');
 }
 
 function claimNemunemuReward() {
-    const nemunemuReward = 100; // ねむねむ報酬の基本ポイント
-    const afkPoints = Math.floor(afkTime / 10); // 放置時間に応じたポイント
-    const totalReward = nemunemuReward + afkPoints;
+    let nemunemuReward = 0;
+    let rewardMessage = "";
 
-    healingPoints += totalReward;
+    const afkPoints = Math.floor(afkTime / 10);
+
+    // Check if the game is in a "game over" state (mochi sleeping or no moves)
+    // The mochiState will be 'ねむっている' if nemukeGauge >= 5000
+    // The mochiState will be '動けない' if !canMakeMove()
+    if (mochiState === 'ねむっている' || mochiState === '動けない') {
+        nemunemuReward = 100; // Fixed reward for game over
+        rewardMessage = `「ねむねむ報酬」として ${nemunemuReward}P と放置報酬 ${afkPoints}P、合計 ${nemunemuReward + afkPoints} 癒しポイントをゲットしました！`;
+        healingPoints += nemunemuReward + afkPoints;
+    } else {
+        // Only afk points if not in a game over state
+        rewardMessage = `放置報酬として ${afkPoints}P 癒しポイントをゲットしました！`;
+        healingPoints += afkPoints;
+    }
+
     playSound('reward');
-    alert(`「ねむねむ報酬」として ${nemunemuReward}P と放置報酬 ${afkPoints}P、合計 ${totalReward} 癒しポイントをゲットしました！`);
+    alert(rewardMessage);
     saveGame();
-    afkTime = 0; // 放置時間をリセット
+    afkTime = 0;
     resetGame();
 }
 
 function resetGame() {
-    // イベントリスナーを削除してから再登録することで、重複登録を防ぐ
+    deactivateControls();
     getNemunemuRewardBtn.removeEventListener('click', claimNemunemuReward);
+
     nemukeGauge = 0;
-    mochiState = '起きている';
+    mochiState = 'おきている';
     board = Array(boardSize * boardSize).fill(0);
+
     spawnItem();
     spawnItem();
     drawBoard();
     updateStats();
-    updateMochiAnimation();
+    updateMochiStatus();
+
     activateControls();
+
     getNemunemuRewardBtn.disabled = true;
-    undoButton.disabled = true; // 戻るボタンを無効化
-    // ここでイベントリスナーを再登録し、ボタンを有効にする
+    undoButton.disabled = true;
+
     getNemunemuRewardBtn.addEventListener('click', claimNemunemuReward);
-    getNemunemuRewardBtn.disabled = false; // ボタンを有効にする
 }
 
-// --- セーブ & ロード ---
+// --- Save & Load ---
 
 function saveGame() {
     const gameState = {
@@ -683,9 +586,6 @@ function loadGame() {
     if (savedState) {
         const gameState = JSON.parse(savedState);
         healingPoints = gameState.healingPoints || 0;
-        purchasedFurniture = gameState.purchasedFurniture || {}; // オブジェクトとして初期化
+        purchasedFurniture = gameState.purchasedFurniture || {};
     }
 }
-
-// --- ゲーム開始 ---
-
